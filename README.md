@@ -8,7 +8,7 @@ This is not official resource from [@BC-SECURITY](https://github.com/BC-SECURITY
 
 ## Get Started
 ### Prerequisites
-    - [BC-SECURITY/Empire](https://github.com/BC-SECURITY/Empire) >= 4.1
+  - [BC-SECURITY/Empire](https://github.com/BC-SECURITY/Empire) >= 4.1
 
 ### Installation
 

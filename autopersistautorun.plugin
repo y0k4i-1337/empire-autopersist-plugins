@@ -24,6 +24,7 @@ class Plugin(Plugin):
             "Comments": [
                 "Installs an autorun value in HKCU or HKLM to execute a payload.",
                 "TargetHive: Target hive to install autorun. Specify 'CurrentUser' for HKCU and 'LocalMachine' for HKLM.",
+                "If TargetHive is set to Auto, it will depend on agent's integrity level.",
             ]
         },
 
@@ -48,6 +49,7 @@ class Plugin(Plugin):
                 "Required": True,
                 "Value": "CurrentUser",
                 "SuggestedValues": [
+                    "Auto",
                     "CurrentUser",
                     "LocalMachine"
                 ],
@@ -156,12 +158,17 @@ class Plugin(Plugin):
             )
             print(helpers.color(f"[!] module name {module_name} not found"))
             return
+
+        if self.options["TargetHive"]["Value"] != "Auto":
+            tgthive = self.options["TargetHive"]["Value"]
+        else:
+            tghive = "LocalMachine" if agent.high_integrity == 1 else "CurrentUser"
         # define module options
         options = {
             "Agent": agent.name,
             "DotNetVersion": self.options["DotNetVersion"]["Value"],
             "Name": self.options["Name"]["Value"],
-            "TargetHive": self.options["TargetHive"]["Value"],
+            "TargetHive": tgthive,
             "Value": self.options["Value"]["Value"]
         }
         # get id from admin

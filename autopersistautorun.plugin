@@ -162,7 +162,7 @@ class Plugin(Plugin):
         if self.options["TargetHive"]["Value"] != "Auto":
             tgthive = self.options["TargetHive"]["Value"]
         else:
-            tghive = "LocalMachine" if agent.high_integrity == 1 else "CurrentUser"
+            tgthive = "LocalMachine" if agent.high_integrity == 1 else "CurrentUser"
         # define module options
         options = {
             "Agent": agent.name,
